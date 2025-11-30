@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purple Cow Laundry - Track Your Order</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.5s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 min-h-screen">
+    <div id="app">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-300 mx-auto mb-4"></div>
+                <p class="text-purple-200 text-lg">Loading tracking system...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+        // Global state
+        let database;
+        let orderCode = '';
+        let orderDetails = null;
+        let loading = false;
+        let error = '';
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBmIjCVpaLoftPQv2nPz99PmAoJ3gD-0Gs",
+            authDomain: "purple-cow-laundry.firebaseapp.com",
+            databaseURL: "https://purple-cow-laundry-default-rtdb.firebaseio.com",
+            projectId: "purple-cow-laundry",
+            storageBucket: "purple-cow-laundry.firebasestorage.app",
+            messagingSenderId: "1008755441028",
+            appId: "1:1008755441028:web:0ea44309728e02c437b1d1",
+            measurementId: "G-89RSJRV9DF"
+        };
+
+        // Initialize Firebase
+        try {
+            const app = initializeApp(firebaseConfig);
+            database = getDatabase(app);
+            console.log('Firebase initialized successfully');
+            render();
+        } catch (err) {
+            console.error('Firebase initialization error:', err);
+            document.getElementById('app').innerHTML = `
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="text-center bg-red-100 border border-red-400 text-red-700 px-8 py-6 rounded-xl max-w-md">
+                        <p class="text-xl font-bold mb-2">⚠️ Connection Error</p>
+                        <p class="mb-4">Failed to connect to tracking system.</p>
+                        <button onclick="location.reload()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Track order function
+        async function trackOrder() {
+            if (!orderCode.trim()) {
+                error = 'Please enter your Order ID';
+                render();
+                return;
+            }
+
+            loading = true;
+            error = '';
+            orderDetails = null;
+            render();
+
+            try {
+                const snapshot = await get(ref(database, 'customers'));
+                const data = snapshot.val();
+                
+                if (!data) {
+                    error = 'No orders found in the system. Please contact Purple Cow Laundry.';
+                    loading = false;
+                    render();
+                    return;
+                }
+
+                const customers = Object.values(data);
+                const searchCode = orderCode.trim();
+                let foundOrder = null;
+                let customerInfo = null;
+
+                for (const customer of customers) {
+                    if (customer.washes && Array.isArray(customer.washes)) {
+                        for (const wash of customer.washes) {
+                            const pickupMatch = wash.pickupCode && wash.pickupCode.toString() === searchCode;
+                            const deliveryMatch = wash.deliveryCode && wash.deliveryCode.toString() === searchCode;
+                            
+                            if (pickupMatch || deliveryMatch) {
+                                foundOrder = wash;
+                                customerInfo = {
+                                    name: customer.name,
+                                    phone: customer.phone,
+                                    address: customer.address
+                                };
+                                break;
+                            }
+                        }
+                    }
+                    if (foundOrder) break;
+                }
+
+                if (foundOrder) {
+                    orderDetails = { ...foundOrder, customer: customerInfo };
+                } else {
+                    error = `Order ID #${searchCode} not found. Please check your WhatsApp message and try again.`;
+                }
+            } catch (err) {
+                console.error('Error tracking order:', err);
+                error = 'Unable to track order. Please check your internet connection and try again.';
+            } finally {
+                loading = false;
+                render();
+            }
+        }
+
+        function getStatusInfo(status) {
+            switch (status) {
+                case 'pending':
+                    return { icon: '⏰', title: 'Awaiting Pickup', description: 'Your laundry pickup is scheduled', color: 'from-gray-500 to-gray-600' };
+                case 'picked-up':
+                    return { icon: '🚚', title: 'In Process', description: 'Your laundry is being washed and dried with care', color: 'from-blue-500 to-blue-600' };
+                case 'delivered':
+                    return { icon: '✅', title: 'Delivered Successfully', description: 'Your fresh, clean laundry has been delivered', color: 'from-green-500 to-green-600' };
+                default:
+                    return { icon: '📦', title: 'Processing', description: 'We are processing your order', color: 'from-gray-500 to-gray-600' };
+            }
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            const statusInfo = orderDetails ? getStatusInfo(orderDetails.status) : null;
+
+            app.innerHTML = `
+                <div class="p-4 max-w-2xl mx-auto py-8">
+                    <!-- Header -->
+                    <div class="text-center mb-8">
+                        <div class="bg-white rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4 shadow-2xl">
+                            <span class="text-5xl">🐄💜</span>
+                        </div>
+                        <h1 class="text-4xl font-bold text-white mb-2">Purple Cow Laundry</h1>
+                        <p class="text-purple-200 text-lg">Track Your Order</p>
+                    </div>
+
+                    <!-- Search Box -->
+                    <div class="bg-white rounded-2xl shadow-2xl p-6 md:p-8 mb-6">
+                        <div class="mb-6">
+                            <label class="block text-gray-700 font-semibold mb-3 text-lg">Enter Your Order ID</label>
+                            <div class="flex gap-3 flex-col sm:flex-row">
+                                <div class="relative flex-1">
+                                    <span class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold text-lg">#</span>
+                                    <input type="text" id="orderCodeInput" value="${orderCode}" maxlength="4" placeholder="Enter 4-digit code" class="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg font-semibold">
+                                </div>
+                                <button id="trackBtn" ${loading ? 'disabled' : ''} class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-semibold shadow-lg disabled:opacity-50 whitespace-nowrap transition">
+                                    ${loading ? '⏳ Tracking...' : '🔍 Track'}
+                                </button>
+                            </div>
+                            ${error ? `
+                                <div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                    <p class="text-red-600 flex items-center gap-2">
+                                        <span class="text-xl">⚠️</span>
+                                        <span class="text-sm">${error}</span>
+                                    </p>
+                                </div>
+                            ` : ''}
+                            <p class="text-gray-500 text-sm mt-3 flex items-start gap-2">
+                                <span class="text-lg">💡</span>
+                                <span>Your Order ID was sent to you via WhatsApp when your order was picked up or delivered</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Order Details -->
+                    ${orderDetails ? `
+                        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden animate-fadeIn">
+                            <div class="bg-gradient-to-r ${statusInfo.color} p-8 text-white text-center">
+                                <div class="text-6xl mb-4">${statusInfo.icon}</div>
+                                <h2 class="text-3xl font-bold mb-2">${statusInfo.title}</h2>
+                                <p class="text-lg opacity-90">${statusInfo.description}</p>
+                            </div>
+
+                            <div class="p-6 md:p-8">
+                                <div class="space-y-6">
+                                    <!-- Wash Number -->
+                                    <div class="bg-purple-50 rounded-xl p-4 border-2 border-purple-200">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-gray-600 font-medium">Wash Number</span>
+                                            <span class="text-2xl font-bold text-purple-600">#${orderDetails.washNumber} of 10</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Timeline -->
+                                    <div class="space-y-4">
+                                        <h3 class="font-bold text-gray-700 text-lg border-b pb-2">Order Timeline</h3>
+                                        
+                                        ${orderDetails.pickupDate ? `
+                                            <div class="flex items-start gap-4 bg-blue-50 rounded-xl p-4 border border-blue-200">
+                                                <div class="text-3xl mt-1">🚚</div>
+                                                <div class="flex-1">
+                                                    <div class="font-semibold text-gray-800 text-lg">Picked Up</div>
+                                                    <div class="text-sm text-gray-600 mt-1">
+                                                        📅 ${new Date(orderDetails.pickupDate).toLocaleDateString('en-IN', {
+                                                            weekday: 'long',
+                                                            year: 'numeric',
+                                                            month: 'long',
+                                                            day: 'numeric'
+                                                        })}
+                                                    </div>
+                                                    ${orderDetails.pickupCode ? `
+                                                        <div class="mt-2 inline-block bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-bold">
+                                                            Pickup ID: #${orderDetails.pickupCode}
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+
+                                        ${orderDetails.deliveryDate ? `
+                                            <div class="flex items-start gap-4 bg-green-50 rounded-xl p-4 border border-green-200">
+                                                <div class="text-3xl mt-1">✅</div>
+                                                <div class="flex-1">
+                                                    <div class="font-semibold text-gray-800 text-lg">Delivered</div>
+                                                    <div class="text-sm text-gray-600 mt-1">
+                                                        📅 ${new Date(orderDetails.deliveryDate).toLocaleDateString('en-IN', {
+                                                            weekday: 'long',
+                                                            year: 'numeric',
+                                                            month: 'long',
+                                                            day: 'numeric'
+                                                        })}
+                                                    </div>
+                                                    ${orderDetails.deliveryCode ? `
+                                                        <div class="mt-2 inline-block bg-green-500 text-white px-3 py-1 rounded-lg text-sm font-bold">
+                                                            Delivery ID: #${orderDetails.deliveryCode}
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        ` : orderDetails.status === 'picked-up' ? `
+                                            <div class="flex items-start gap-4 bg-yellow-50 rounded-xl p-4 border border-yellow-200">
+                                                <div class="text-3xl mt-1">⏳</div>
+                                                <div class="flex-1">
+                                                    <div class="font-semibold text-gray-700 text-lg">Delivery Pending</div>
+                                                    <div class="text-sm text-gray-600 mt-1">
+                                                        Your laundry is being processed. We'll notify you via WhatsApp when it's ready for delivery!
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+
+                                    <!-- Customer Info -->
+                                    ${orderDetails.customer ? `
+                                        <div class="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
+                                            <h3 class="font-bold text-gray-700 mb-3 text-lg">Customer Details</h3>
+                                            <div class="flex items-center gap-3 text-gray-700">
+                                                <span class="text-purple-600 text-xl">👤</span>
+                                                <span class="font-medium">${orderDetails.customer.name}</span>
+                                            </div>
+                                            <div class="flex items-center gap-3 text-gray-700">
+                                                <span class="text-purple-600 text-xl">📞</span>
+                                                <span>${orderDetails.customer.phone}</span>
+                                            </div>
+                                            ${orderDetails.customer.address ? `
+                                                <div class="flex items-start gap-3 text-gray-700">
+                                                    <span class="text-purple-600 text-xl">📍</span>
+                                                    <span>${orderDetails.customer.address}</span>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+
+                            <div class="bg-gradient-to-r from-purple-600 to-indigo-600 p-6 text-white text-center">
+                                <p class="text-lg font-semibold mb-2">Need Help?</p>
+                                <p class="text-purple-100 mb-4">Contact us anytime for assistance</p>
+                                <a href="tel:+919876543210" class="inline-flex items-center gap-2 bg-white text-purple-600 px-6 py-3 rounded-lg font-bold hover:bg-purple-50 transition shadow-lg">
+                                    📞 Call Support
+                                </a>
+                            </div>
+                        </div>
+                    ` : !loading && !error ? `
+                        <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white border border-white/20">
+                            <h3 class="font-bold text-lg mb-3 flex items-center gap-2">
+                                <span class="text-2xl">💡</span>
+                                How to Track Your Order
+                            </h3>
+                            <ul class="space-y-3 text-purple-100">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-xl flex-shrink-0">1️⃣</span>
+                                    <span>Find your 4-digit Order ID from the WhatsApp message we sent you</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-xl flex-shrink-0">2️⃣</span>
+                                    <span>Enter the Order ID in the search box above (without the # symbol)</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-xl flex-shrink-0">3️⃣</span>
+                                    <span>Click "Track" to view real-time status of your laundry order</span>
+                                </li>
+                            </ul>
+                            <div class="mt-6 pt-4 border-t border-white/20">
+                                <p class="text-purple-200 text-sm">
+                                    <strong>Note:</strong> You receive two Order IDs - one when we pickup your laundry and another when we deliver it. You can track your order using either ID.
+                                </p>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div class="text-center mt-8 text-purple-200 text-sm">
+                        <p>🐄💜 Purple Cow Laundry - Premium Wash & Care Service</p>
+                        <p class="mt-1 text-purple-300">India's Most Trusted Laundry Service</p>
+                    </div>
+                </div>
+            `;
+
+            // Re-attach event listeners
+            const input = document.getElementById('orderCodeInput');
+            const trackBtn = document.getElementById('trackBtn');
+            
+            if (input) {
+                input.addEventListener('input', (e) => {
+                    orderCode = e.target.value;
+                    error = '';
+                });
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        trackOrder();
+                    }
+                });
+                input.focus();
+            }
+
+            if (trackBtn) {
+                trackBtn.addEventListener('click', trackOrder);
+            }
+        }
+    </script>
+</body>
+</html>  
