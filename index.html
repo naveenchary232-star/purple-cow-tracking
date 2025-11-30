@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <title>Purple Cow Laundry - Track Your Order</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -14,6 +15,19 @@
         }
         .animate-fadeIn {
             animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
     </style>
 </head>
@@ -28,6 +42,8 @@
     </div>
 
     <script>
+        console.log('🚀 Customer Tracking Page Loaded');
+        
         // Firebase Configuration - Same as Admin Panel
         const firebaseConfig = {
             apiKey: "AIzaSyCorv41Qlud5cK4_dvABePg6boVAr8vEJU",
@@ -45,51 +61,57 @@
         let firebaseInitialized = false;
 
         try {
-            firebase.initializeApp(firebaseConfig);
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
             db = firebase.firestore();
             firebaseInitialized = true;
-            console.log('✅ Firebase connected to admin database');
+            console.log('✅ Firebase connected successfully');
         } catch (error) {
             console.error('❌ Firebase initialization error:', error);
         }
 
         // Global state
-        let orderCode = '';
-        let orderDetails = null;
-        let loading = false;
-        let error = '';
+        let state = {
+            orderCode: '',
+            orderDetails: null,
+            loading: false,
+            error: ''
+        };
 
         // Track order function
         async function trackOrder() {
-            if (!orderCode.trim()) {
-                error = 'Please enter your Order ID';
+            if (!state.orderCode.trim()) {
+                state.error = 'Please enter your Order ID';
                 render();
                 return;
             }
 
-            loading = true;
-            error = '';
-            orderDetails = null;
+            state.loading = true;
+            state.error = '';
+            state.orderDetails = null;
             render();
 
             try {
-                console.log('🔍 Searching for Order ID:', orderCode.trim());
+                console.log('🔍 Searching for Order ID:', state.orderCode.trim());
                 
                 const snapshot = await db.collection('customers').get();
                 
                 if (snapshot.empty) {
-                    error = 'No orders found in the system. Please contact Purple Cow Laundry.';
-                    loading = false;
+                    state.error = 'No orders found in the system. Please contact Purple Cow Laundry.';
+                    state.loading = false;
                     render();
                     return;
                 }
 
-                const searchCode = orderCode.trim();
+                const searchCode = state.orderCode.trim();
                 let foundOrder = null;
                 let customerInfo = null;
 
                 // Search through all customers and their washes
                 snapshot.forEach(doc => {
+                    if (foundOrder) return; // Already found
+                    
                     const customer = doc.data();
                     
                     if (customer.washes && Array.isArray(customer.washes)) {
@@ -105,73 +127,86 @@
                                     address: customer.address || ''
                                 };
                                 console.log('✅ Order found!', foundOrder);
-                                return; // Exit loop
+                                break;
                             }
                         }
                     }
                 });
 
                 if (foundOrder) {
-                    orderDetails = { ...foundOrder, customer: customerInfo };
+                    state.orderDetails = { ...foundOrder, customer: customerInfo };
                 } else {
-                    error = `Order ID #${searchCode} not found. Please check your WhatsApp message and try again.`;
+                    state.error = `Order ID #${searchCode} not found. Please check your WhatsApp message and try again.`;
                     console.log('❌ Order not found');
                 }
             } catch (err) {
                 console.error('❌ Error tracking order:', err);
-                error = 'Unable to track order. Please check your internet connection and try again.';
+                state.error = 'Unable to track order. Please check your internet connection and try again.';
             } finally {
-                loading = false;
+                state.loading = false;
                 render();
             }
         }
 
         function getStatusInfo(status) {
-            switch (status) {
-                case 'pending':
-                    return { 
-                        icon: '⏰', 
-                        title: 'Awaiting Pickup', 
-                        description: 'Your laundry pickup is scheduled', 
-                        color: 'from-gray-500 to-gray-600' 
-                    };
-                case 'picked-up':
-                    return { 
-                        icon: '🚚', 
-                        title: 'In Process', 
-                        description: 'Your laundry is being washed and dried with care', 
-                        color: 'from-blue-500 to-blue-600' 
-                    };
-                case 'delivered':
-                    return { 
-                        icon: '✅', 
-                        title: 'Delivered Successfully', 
-                        description: 'Your fresh, clean laundry has been delivered', 
-                        color: 'from-green-500 to-green-600' 
-                    };
-                default:
-                    return { 
-                        icon: '📦', 
-                        title: 'Processing', 
-                        description: 'We are processing your order', 
-                        color: 'from-gray-500 to-gray-600' 
-                    };
-            }
+            const statuses = {
+                'pending': { 
+                    icon: '⏰', 
+                    title: 'Awaiting Pickup', 
+                    description: 'Your laundry pickup is scheduled', 
+                    color: 'from-gray-500 to-gray-600' 
+                },
+                'picked-up': { 
+                    icon: '🚚', 
+                    title: 'In Process', 
+                    description: 'Your laundry is being washed and dried with care', 
+                    color: 'from-blue-500 to-blue-600' 
+                },
+                'delivered': { 
+                    icon: '✅', 
+                    title: 'Delivered Successfully', 
+                    description: 'Your fresh, clean laundry has been delivered', 
+                    color: 'from-green-500 to-green-600' 
+                }
+            };
+            
+            return statuses[status] || { 
+                icon: '📦', 
+                title: 'Processing', 
+                description: 'We are processing your order', 
+                color: 'from-gray-500 to-gray-600' 
+            };
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-IN', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
         }
 
         function render() {
             const app = document.getElementById('app');
-            const statusInfo = orderDetails ? getStatusInfo(orderDetails.status) : null;
+            if (!app) return;
+            
+            const statusInfo = state.orderDetails ? getStatusInfo(state.orderDetails.status) : null;
 
-            app.innerHTML = `
+            const html = `
                 <div class="p-4 max-w-2xl mx-auto py-8">
                     <!-- Header -->
                     <div class="text-center mb-8">
-                        <div class="bg-white rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4 shadow-2xl">
-                            <span class="text-5xl">🐄💜</span>
+                        <div class="relative bg-gradient-to-br from-purple-500 via-purple-600 to-indigo-600 rounded-3xl w-32 h-32 flex items-center justify-center mx-auto mb-4 shadow-2xl transform hover:scale-105 transition-transform duration-300">
+                            <div class="absolute inset-0 bg-white/20 rounded-3xl animate-pulse"></div>
+                            <span class="text-7xl relative z-10 filter drop-shadow-lg">🐄</span>
+                            <div class="absolute -bottom-2 -right-2 bg-purple-700 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                                Track
+                            </div>
                         </div>
-                        <h1 class="text-4xl font-bold text-white mb-2">Purple Cow Laundry</h1>
-                        <p class="text-purple-200 text-lg">Track Your Order</p>
+                        <h1 class="text-5xl font-bold text-white mb-2 tracking-tight">Purple Cow Laundry</h1>
+                        <p class="text-purple-200 text-xl font-medium">Track Your Order in Real-Time</p>
                     </div>
 
                     <!-- Search Box -->
@@ -184,7 +219,7 @@
                                     <input 
                                         type="text" 
                                         id="orderCodeInput" 
-                                        value="${orderCode}" 
+                                        value="${state.orderCode}" 
                                         maxlength="4" 
                                         placeholder="Enter 4-digit code" 
                                         class="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg font-semibold"
@@ -192,17 +227,17 @@
                                 </div>
                                 <button 
                                     id="trackBtn" 
-                                    ${loading ? 'disabled' : ''} 
-                                    class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-semibold shadow-lg disabled:opacity-50 whitespace-nowrap transition"
+                                    ${state.loading ? 'disabled' : ''} 
+                                    class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap transition"
                                 >
-                                    ${loading ? '⏳ Tracking...' : '🔍 Track'}
+                                    ${state.loading ? '⏳ Tracking...' : '🔍 Track'}
                                 </button>
                             </div>
-                            ${error ? `
+                            ${state.error ? `
                                 <div class="mt-3 p-4 bg-red-50 border border-red-200 rounded-lg">
                                     <p class="text-red-600 flex items-center gap-2">
                                         <span class="text-xl">⚠️</span>
-                                        <span class="text-sm">${error}</span>
+                                        <span class="text-sm">${state.error}</span>
                                     </p>
                                 </div>
                             ` : ''}
@@ -214,7 +249,7 @@
                     </div>
 
                     <!-- Order Details -->
-                    ${orderDetails ? `
+                    ${state.orderDetails ? `
                         <div class="bg-white rounded-2xl shadow-2xl overflow-hidden animate-fadeIn">
                             <div class="bg-gradient-to-r ${statusInfo.color} p-8 text-white text-center">
                                 <div class="text-6xl mb-4">${statusInfo.icon}</div>
@@ -228,7 +263,7 @@
                                     <div class="bg-purple-50 rounded-xl p-4 border-2 border-purple-200">
                                         <div class="flex items-center justify-between">
                                             <span class="text-gray-600 font-medium">Wash Number</span>
-                                            <span class="text-2xl font-bold text-purple-600">#${orderDetails.washNumber} of 10</span>
+                                            <span class="text-2xl font-bold text-purple-600">#${state.orderDetails.washNumber} of 10</span>
                                         </div>
                                     </div>
 
@@ -236,49 +271,39 @@
                                     <div class="space-y-4">
                                         <h3 class="font-bold text-gray-700 text-lg border-b pb-2">Order Timeline</h3>
                                         
-                                        ${orderDetails.pickupDate ? `
+                                        ${state.orderDetails.pickupDate ? `
                                             <div class="flex items-start gap-4 bg-blue-50 rounded-xl p-4 border border-blue-200">
                                                 <div class="text-3xl mt-1">🚚</div>
                                                 <div class="flex-1">
                                                     <div class="font-semibold text-gray-800 text-lg">Picked Up</div>
                                                     <div class="text-sm text-gray-600 mt-1">
-                                                        📅 ${new Date(orderDetails.pickupDate).toLocaleDateString('en-IN', {
-                                                            weekday: 'long',
-                                                            year: 'numeric',
-                                                            month: 'long',
-                                                            day: 'numeric'
-                                                        })}
+                                                        📅 ${formatDate(state.orderDetails.pickupDate)}
                                                     </div>
-                                                    ${orderDetails.pickupCode ? `
+                                                    ${state.orderDetails.pickupCode ? `
                                                         <div class="mt-2 inline-block bg-blue-500 text-white px-3 py-1 rounded-lg text-sm font-bold">
-                                                            Pickup ID: #${orderDetails.pickupCode}
+                                                            Pickup ID: #${state.orderDetails.pickupCode}
                                                         </div>
                                                     ` : ''}
                                                 </div>
                                             </div>
                                         ` : ''}
 
-                                        ${orderDetails.deliveryDate ? `
+                                        ${state.orderDetails.deliveryDate ? `
                                             <div class="flex items-start gap-4 bg-green-50 rounded-xl p-4 border border-green-200">
                                                 <div class="text-3xl mt-1">✅</div>
                                                 <div class="flex-1">
                                                     <div class="font-semibold text-gray-800 text-lg">Delivered</div>
                                                     <div class="text-sm text-gray-600 mt-1">
-                                                        📅 ${new Date(orderDetails.deliveryDate).toLocaleDateString('en-IN', {
-                                                            weekday: 'long',
-                                                            year: 'numeric',
-                                                            month: 'long',
-                                                            day: 'numeric'
-                                                        })}
+                                                        📅 ${formatDate(state.orderDetails.deliveryDate)}
                                                     </div>
-                                                    ${orderDetails.deliveryCode ? `
+                                                    ${state.orderDetails.deliveryCode ? `
                                                         <div class="mt-2 inline-block bg-green-500 text-white px-3 py-1 rounded-lg text-sm font-bold">
-                                                            Delivery ID: #${orderDetails.deliveryCode}
+                                                            Delivery ID: #${state.orderDetails.deliveryCode}
                                                         </div>
                                                     ` : ''}
                                                 </div>
                                             </div>
-                                        ` : orderDetails.status === 'picked-up' ? `
+                                        ` : state.orderDetails.status === 'picked-up' ? `
                                             <div class="flex items-start gap-4 bg-yellow-50 rounded-xl p-4 border border-yellow-200">
                                                 <div class="text-3xl mt-1">⏳</div>
                                                 <div class="flex-1">
@@ -292,21 +317,21 @@
                                     </div>
 
                                     <!-- Customer Info -->
-                                    ${orderDetails.customer ? `
+                                    ${state.orderDetails.customer ? `
                                         <div class="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-200">
                                             <h3 class="font-bold text-gray-700 mb-3 text-lg">Customer Details</h3>
                                             <div class="flex items-center gap-3 text-gray-700">
                                                 <span class="text-purple-600 text-xl">👤</span>
-                                                <span class="font-medium">${orderDetails.customer.name}</span>
+                                                <span class="font-medium">${state.orderDetails.customer.name}</span>
                                             </div>
                                             <div class="flex items-center gap-3 text-gray-700">
                                                 <span class="text-purple-600 text-xl">📞</span>
-                                                <span>${orderDetails.customer.phone}</span>
+                                                <span>${state.orderDetails.customer.phone}</span>
                                             </div>
-                                            ${orderDetails.customer.address ? `
+                                            ${state.orderDetails.customer.address ? `
                                                 <div class="flex items-start gap-3 text-gray-700">
                                                     <span class="text-purple-600 text-xl">📍</span>
-                                                    <span>${orderDetails.customer.address}</span>
+                                                    <span>${state.orderDetails.customer.address}</span>
                                                 </div>
                                             ` : ''}
                                         </div>
@@ -322,7 +347,7 @@
                                 </a>
                             </div>
                         </div>
-                    ` : !loading && !error ? `
+                    ` : !state.loading && !state.error ? `
                         <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white border border-white/20">
                             <h3 class="font-bold text-lg mb-3 flex items-center gap-2">
                                 <span class="text-2xl">💡</span>
@@ -351,50 +376,65 @@
                     ` : ''}
 
                     <div class="text-center mt-8 text-purple-200 text-sm">
-                        <p>🐄💜 Purple Cow Laundry - Premium Wash & Care Service</p>
-                        <p class="mt-1 text-purple-300">India's Most Trusted Laundry Service</p>
+                        <div class="flex items-center justify-center gap-2 mb-2">
+                            <span class="text-3xl">🐄</span>
+                            <span class="text-lg font-semibold">Purple Cow Laundry</span>
+                        </div>
+                        <p class="text-purple-300">Premium Wash & Care Service</p>
+                        <p class="mt-1 text-purple-400 text-xs">India's Most Trusted Laundry Service</p>
                     </div>
                 </div>
             `;
 
-            // Re-attach event listeners
-            const input = document.getElementById('orderCodeInput');
-            const trackBtn = document.getElementById('trackBtn');
-            
-            if (input) {
-                input.addEventListener('input', (e) => {
-                    orderCode = e.target.value;
-                    error = '';
-                });
-                input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        trackOrder();
-                    }
-                });
-                input.focus();
-            }
+            app.innerHTML = html;
 
-            if (trackBtn) {
-                trackBtn.addEventListener('click', trackOrder);
-            }
+            // Re-attach event listeners
+            setTimeout(() => {
+                const input = document.getElementById('orderCodeInput');
+                const trackBtn = document.getElementById('trackBtn');
+                
+                if (input) {
+                    input.addEventListener('input', (e) => {
+                        state.orderCode = e.target.value;
+                        state.error = '';
+                    });
+                    input.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter' && !state.loading) {
+                            trackOrder();
+                        }
+                    });
+                    input.focus();
+                }
+
+                if (trackBtn) {
+                    trackBtn.addEventListener('click', () => {
+                        if (!state.loading) {
+                            trackOrder();
+                        }
+                    });
+                }
+            }, 0);
         }
 
         // Initialize
-        if (firebaseInitialized) {
-            render();
-        } else {
-            document.getElementById('app').innerHTML = `
-                <div class="flex items-center justify-center min-h-screen p-4">
-                    <div class="text-center bg-red-100 border border-red-400 text-red-700 px-8 py-6 rounded-xl max-w-md">
-                        <p class="text-xl font-bold mb-2">⚠️ Connection Error</p>
-                        <p class="mb-4">Failed to connect to tracking system.</p>
-                        <button onclick="location.reload()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
-                            Retry
-                        </button>
+        window.addEventListener('DOMContentLoaded', () => {
+            if (firebaseInitialized) {
+                console.log('✅ App initialized and ready');
+                render();
+            } else {
+                document.getElementById('app').innerHTML = `
+                    <div class="flex items-center justify-center min-h-screen p-4">
+                        <div class="text-center bg-red-100 border border-red-400 text-red-700 px-8 py-6 rounded-xl max-w-md">
+                            <p class="text-xl font-bold mb-2">⚠️ Connection Error</p>
+                            <p class="mb-4">Failed to connect to tracking system.</p>
+                            <button onclick="location.reload()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+                                Retry
+                            </button>
+                        </div>
                     </div>
-                </div>
-            `;
-        }
+                `;
+            }
+        });
     </script>
 </body>
 </html>
