@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Purple Cow Laundry - Track Your Order</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -25,50 +27,37 @@
         </div>
     </div>
 
-    <script type="module">
-        // Import Firebase
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+    <script>
+        // Firebase Configuration - Same as Admin Panel
+        const firebaseConfig = {
+            apiKey: "AIzaSyCorv41Qlud5cK4_dvABePg6boVAr8vEJU",
+            authDomain: "purple-cow-admin-2232f.firebaseapp.com",
+            databaseURL: "https://purple-cow-admin-2232f-default-rtdb.firebaseio.com",
+            projectId: "purple-cow-admin-2232f",
+            storageBucket: "purple-cow-admin-2232f.firebasestorage.app",
+            messagingSenderId: "295566586816",
+            appId: "1:295566586816:web:358452d3998f2d78370e25",
+            measurementId: "G-TE32V3BTHE"
+        };
+
+        // Initialize Firebase
+        let db;
+        let firebaseInitialized = false;
+
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            firebaseInitialized = true;
+            console.log('✅ Firebase connected to admin database');
+        } catch (error) {
+            console.error('❌ Firebase initialization error:', error);
+        }
 
         // Global state
-        let database;
         let orderCode = '';
         let orderDetails = null;
         let loading = false;
         let error = '';
-
-        // Firebase Configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyBmIjCVpaLoftPQv2nPz99PmAoJ3gD-0Gs",
-            authDomain: "purple-cow-laundry.firebaseapp.com",
-            databaseURL: "https://purple-cow-laundry-default-rtdb.firebaseio.com",
-            projectId: "purple-cow-laundry",
-            storageBucket: "purple-cow-laundry.firebasestorage.app",
-            messagingSenderId: "1008755441028",
-            appId: "1:1008755441028:web:0ea44309728e02c437b1d1",
-            measurementId: "G-89RSJRV9DF"
-        };
-
-        // Initialize Firebase
-        try {
-            const app = initializeApp(firebaseConfig);
-            database = getDatabase(app);
-            console.log('Firebase initialized successfully');
-            render();
-        } catch (err) {
-            console.error('Firebase initialization error:', err);
-            document.getElementById('app').innerHTML = `
-                <div class="flex items-center justify-center min-h-screen p-4">
-                    <div class="text-center bg-red-100 border border-red-400 text-red-700 px-8 py-6 rounded-xl max-w-md">
-                        <p class="text-xl font-bold mb-2">⚠️ Connection Error</p>
-                        <p class="mb-4">Failed to connect to tracking system.</p>
-                        <button onclick="location.reload()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
-                            Retry
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
 
         // Track order function
         async function trackOrder() {
@@ -84,22 +73,25 @@
             render();
 
             try {
-                const snapshot = await get(ref(database, 'customers'));
-                const data = snapshot.val();
+                console.log('🔍 Searching for Order ID:', orderCode.trim());
                 
-                if (!data) {
+                const snapshot = await db.collection('customers').get();
+                
+                if (snapshot.empty) {
                     error = 'No orders found in the system. Please contact Purple Cow Laundry.';
                     loading = false;
                     render();
                     return;
                 }
 
-                const customers = Object.values(data);
                 const searchCode = orderCode.trim();
                 let foundOrder = null;
                 let customerInfo = null;
 
-                for (const customer of customers) {
+                // Search through all customers and their washes
+                snapshot.forEach(doc => {
+                    const customer = doc.data();
+                    
                     if (customer.washes && Array.isArray(customer.washes)) {
                         for (const wash of customer.washes) {
                             const pickupMatch = wash.pickupCode && wash.pickupCode.toString() === searchCode;
@@ -110,22 +102,23 @@
                                 customerInfo = {
                                     name: customer.name,
                                     phone: customer.phone,
-                                    address: customer.address
+                                    address: customer.address || ''
                                 };
-                                break;
+                                console.log('✅ Order found!', foundOrder);
+                                return; // Exit loop
                             }
                         }
                     }
-                    if (foundOrder) break;
-                }
+                });
 
                 if (foundOrder) {
                     orderDetails = { ...foundOrder, customer: customerInfo };
                 } else {
                     error = `Order ID #${searchCode} not found. Please check your WhatsApp message and try again.`;
+                    console.log('❌ Order not found');
                 }
             } catch (err) {
-                console.error('Error tracking order:', err);
+                console.error('❌ Error tracking order:', err);
                 error = 'Unable to track order. Please check your internet connection and try again.';
             } finally {
                 loading = false;
@@ -136,13 +129,33 @@
         function getStatusInfo(status) {
             switch (status) {
                 case 'pending':
-                    return { icon: '⏰', title: 'Awaiting Pickup', description: 'Your laundry pickup is scheduled', color: 'from-gray-500 to-gray-600' };
+                    return { 
+                        icon: '⏰', 
+                        title: 'Awaiting Pickup', 
+                        description: 'Your laundry pickup is scheduled', 
+                        color: 'from-gray-500 to-gray-600' 
+                    };
                 case 'picked-up':
-                    return { icon: '🚚', title: 'In Process', description: 'Your laundry is being washed and dried with care', color: 'from-blue-500 to-blue-600' };
+                    return { 
+                        icon: '🚚', 
+                        title: 'In Process', 
+                        description: 'Your laundry is being washed and dried with care', 
+                        color: 'from-blue-500 to-blue-600' 
+                    };
                 case 'delivered':
-                    return { icon: '✅', title: 'Delivered Successfully', description: 'Your fresh, clean laundry has been delivered', color: 'from-green-500 to-green-600' };
+                    return { 
+                        icon: '✅', 
+                        title: 'Delivered Successfully', 
+                        description: 'Your fresh, clean laundry has been delivered', 
+                        color: 'from-green-500 to-green-600' 
+                    };
                 default:
-                    return { icon: '📦', title: 'Processing', description: 'We are processing your order', color: 'from-gray-500 to-gray-600' };
+                    return { 
+                        icon: '📦', 
+                        title: 'Processing', 
+                        description: 'We are processing your order', 
+                        color: 'from-gray-500 to-gray-600' 
+                    };
             }
         }
 
@@ -168,9 +181,20 @@
                             <div class="flex gap-3 flex-col sm:flex-row">
                                 <div class="relative flex-1">
                                     <span class="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold text-lg">#</span>
-                                    <input type="text" id="orderCodeInput" value="${orderCode}" maxlength="4" placeholder="Enter 4-digit code" class="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg font-semibold">
+                                    <input 
+                                        type="text" 
+                                        id="orderCodeInput" 
+                                        value="${orderCode}" 
+                                        maxlength="4" 
+                                        placeholder="Enter 4-digit code" 
+                                        class="w-full pl-10 pr-4 py-4 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg font-semibold"
+                                    >
                                 </div>
-                                <button id="trackBtn" ${loading ? 'disabled' : ''} class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-semibold shadow-lg disabled:opacity-50 whitespace-nowrap transition">
+                                <button 
+                                    id="trackBtn" 
+                                    ${loading ? 'disabled' : ''} 
+                                    class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-semibold shadow-lg disabled:opacity-50 whitespace-nowrap transition"
+                                >
                                     ${loading ? '⏳ Tracking...' : '🔍 Track'}
                                 </button>
                             </div>
@@ -354,6 +378,23 @@
                 trackBtn.addEventListener('click', trackOrder);
             }
         }
+
+        // Initialize
+        if (firebaseInitialized) {
+            render();
+        } else {
+            document.getElementById('app').innerHTML = `
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="text-center bg-red-100 border border-red-400 text-red-700 px-8 py-6 rounded-xl max-w-md">
+                        <p class="text-xl font-bold mb-2">⚠️ Connection Error</p>
+                        <p class="mb-4">Failed to connect to tracking system.</p>
+                        <button onclick="location.reload()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
     </script>
 </body>
-</html>  
+</html>
